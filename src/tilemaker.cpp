@@ -25,6 +25,7 @@
 
 #ifdef _MSC_VER
 typedef unsigned uint;
+typedef unsigned long ulong;
 #endif
 // Protobuf
 #include "osmformat.pb.h"
@@ -58,8 +59,8 @@ typedef boost::geometry::model::box<Point> Box;
 typedef boost::geometry::ring_type<Polygon>::type Ring;
 typedef boost::geometry::interior_type<Polygon>::type InteriorRing;
 typedef boost::variant<Point,Linestring,MultiLinestring,MultiPolygon> Geometry;
-typedef std::pair<Box, uint> IndexValue;
-typedef boost::geometry::index::rtree< IndexValue, boost::geometry::index::quadratic<16> > RTree;
+typedef std::pair<Box, uint64_t> IndexValue;
+typedef boost::geometry::index::rtree< IndexValue, boost::geometry::index::quadratic<32> > RTree;
 
 // Namespaces
 using namespace std;
@@ -97,7 +98,7 @@ int main(int argc, char* argv[]) {
 
 	node_container_t nodes;								// lat/lon for all nodes (node ids fit into uint32, at least for now)
 	map< uint32_t, WayStore > ways;						// node list for all ways
-	map< uint, unordered_set<OutputObject> > tileIndex;	// objects to be output
+	map< uint64_t, unordered_set<OutputObject> > tileIndex;	// objects to be output
 	map< uint32_t, unordered_set<OutputObject> > relationOutputObjects;	// outputObjects for multipolygons (saved for processing later as ways)
 	map< uint32_t, vector<uint32_t> > wayRelations;		// for each way, which relations it's in (therefore we need to keep them)
 	vector<Geometry> cachedGeometries;					// prepared boost::geometry objects (from shapefiles)
@@ -392,7 +393,7 @@ int main(int argc, char* argv[]) {
 								return -1;
 							}
 							if (!osmObject.empty()) {
-								uint32_t index = latpLon2index(node, baseZoom);
+								uint64_t index = latpLon2index(node, baseZoom);
 								for (auto jt = osmObject.outputs.begin(); jt != osmObject.outputs.end(); ++jt) {
 									tileIndex[index].insert(*jt);
 								}
@@ -460,7 +461,7 @@ int main(int argc, char* argv[]) {
 						if (!osmObject.empty() || inRelation) {
 							// create a list of tiles this way passes through (tilelist)
 							// and save the nodelist in the global way hash
-							unordered_set <uint32_t> tilelist;
+							unordered_set <uint64_t> tilelist;
 							uint lastX, lastY;
 							for (k=0; k<pbfWay.refs_size(); k++) {
 								int tileX =  lon2tilex(nodes[nodelist[k]].lon  / 10000000.0, baseZoom);
@@ -474,7 +475,7 @@ int main(int argc, char* argv[]) {
 										insertIntermediateTiles(&tilelist, max(dx,dy), nodes[nodelist[k-1]], nodes[nodelist[k]], baseZoom);
 									}
 								}
-								uint32_t index = tileX * 65536 + tileY;
+								uint64_t index = tileX * 4294967296 + tileY;
 								tilelist.insert( index );
 								lastX = tileX;
 								lastY = tileY;
@@ -483,7 +484,7 @@ int main(int argc, char* argv[]) {
 
 							// then, for each tile, store the OutputObject for each layer
 							for (auto it = tilelist.begin(); it != tilelist.end(); ++it) {
-								uint32_t index = *it;
+								uint64_t index = *it;
 								for (auto jt = osmObject.outputs.begin(); jt != osmObject.outputs.end(); ++jt) {
 									tileIndex[index].insert(*jt);
 								}
@@ -496,7 +497,7 @@ int main(int argc, char* argv[]) {
 									// relID is now the relation ID
 									for (auto it = tilelist.begin(); it != tilelist.end(); ++it) {
 										// index is now the tile index number
-										uint32_t index = *it;
+										uint64_t index = *it;
 										// add all the OutputObjects for this relation into this tile
 										for (auto jt = relationOutputObjects[relID].begin(); jt != relationOutputObjects[relID].end(); ++jt) {
 											tileIndex[index].insert(*jt);
@@ -521,8 +522,8 @@ int main(int argc, char* argv[]) {
 	// Loop through zoom levels
 	for (uint zoom=startZoom; zoom<=endZoom; zoom++) {
 		// Create list of tiles, and the data in them
-		map< uint, unordered_set<OutputObject> > *tileIndexPtr;
-		map< uint, unordered_set<OutputObject> > generatedIndex;
+		map< uint64_t, unordered_set<OutputObject> > *tileIndexPtr;
+		map< uint64_t, unordered_set<OutputObject> > generatedIndex;
 		if (zoom==baseZoom) {
 			// at z14, we can just use tileIndex
 			tileIndexPtr = &tileIndex;
@@ -530,10 +531,10 @@ int main(int argc, char* argv[]) {
 			// otherwise, we need to run through the z14 list, and assign each way
 			// to a tile at our zoom level
 			for (auto it = tileIndex.begin(); it!= tileIndex.end(); ++it) {
-				uint index = it->first;
-				uint tilex = (index >> 16  ) / pow(2, baseZoom-zoom);
-				uint tiley = (index & 65535) / pow(2, baseZoom-zoom);
-				uint newIndex = (tilex << 16) + tiley;
+				uint64_t index = it->first;
+				uint64_t tilex = (index >> 32  ) / pow(2, baseZoom-zoom);
+				uint64_t tiley = (index & 4294967295) / pow(2, baseZoom-zoom);
+				uint64_t newIndex = (tilex << 16) + tiley;
 				unordered_set<OutputObject> ooset = it->second;
 				for (auto jt = ooset.begin(); jt != ooset.end(); ++jt) {
 					generatedIndex[newIndex].insert(*jt);
@@ -543,7 +544,7 @@ int main(int argc, char* argv[]) {
 		}
 
 		// Loop through tiles
-		uint tc = 0;
+		uint64_t tc = 0;
 		for (auto it = tileIndexPtr->begin(); it != tileIndexPtr->end(); ++it) {
 			if ((tc % 100) == 0) { 
 				cout << "Zoom level " << zoom << ", writing tile " << tc << " of " << tileIndexPtr->size() << "               \r";
@@ -553,7 +554,7 @@ int main(int argc, char* argv[]) {
 
 			// Create tile
 			vector_tile::Tile tile;
-			uint index = it->first;
+			uint64_t index = it->first;
 			TileBbox bbox(index,zoom);
 			unordered_set<OutputObject> ooList = it->second;
 			if (clippingBoxFromJSON && (maxLon<=bbox.minLon || minLon>=bbox.maxLon || maxLat<=bbox.minLat || minLat>=bbox.maxLat)) { continue; }

@@ -18,13 +18,13 @@ double tilex2lon(int x, uint z) { return x / pow(2.0, z) * 360.0 - 180; }
 double tiley2lat(int y, uint z) { double n = M_PI - 2.0 * M_PI * y / pow(2.0, z); return 180.0 / M_PI * atan(0.5 * (exp(n) - exp(-n))); }
 
 // Get a tile index
-inline uint32_t latpLon2index(LatpLon ll, uint baseZoom) {
-	return lon2tilex(ll.lon /10000000.0, baseZoom) * 65536 + 
+inline uint64_t latpLon2index(LatpLon ll, uint baseZoom) {
+	return lon2tilex(ll.lon /10000000.0, baseZoom) * 4294967296 + 
 	       latp2tiley(ll.latp/10000000.0, baseZoom);
 }
 
 // Add intermediate points so we don't skip tiles on long segments
-void insertIntermediateTiles(unordered_set <uint32_t> *tlPtr, int numPoints, LatpLon startLL, LatpLon endLL, uint baseZoom) {
+void insertIntermediateTiles(unordered_set <uint64_t> *tlPtr, int numPoints, LatpLon startLL, LatpLon endLL, uint baseZoom) {
 	numPoints *= 3;	// perhaps overkill, but why not
 	int32_t dLon  = endLL.lon -startLL.lon ;
 	int32_t dLatp = endLL.latp-startLL.latp;
@@ -42,13 +42,14 @@ void insertIntermediateTiles(unordered_set <uint32_t> *tlPtr, int numPoints, Lat
 class TileBbox { public:
 	double minLon, maxLon, minLat, maxLat, minLatp, maxLatp;
 	double xmargin, ymargin, xscale, yscale;
-	uint index, zoom, tiley, tilex;
+        uint64_t index, tilex, tiley;
+        uint zoom;
 	Box clippingBox;
 
-	TileBbox(uint i, uint z) {
+	TileBbox(uint64_t i, uint z) {
 		index = i; zoom = z;
-		tiley = index & 65535;
-		tilex = index >> 16;
+		tiley = index & 4294967295L;
+		tilex = (index >> 32);
 		minLon = tilex2lon(tilex  ,zoom);
 		minLat = tiley2lat(tiley+1,zoom);
 		maxLon = tilex2lon(tilex+1,zoom);
