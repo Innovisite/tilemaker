@@ -534,7 +534,7 @@ int main(int argc, char* argv[]) {
 				uint64_t index = it->first;
 				uint64_t tilex = (index >> 32  ) / pow(2, baseZoom-zoom);
 				uint64_t tiley = (index & 4294967295) / pow(2, baseZoom-zoom);
-				uint64_t newIndex = (tilex << 16) + tiley;
+				uint64_t newIndex = (tilex << 32) + tiley;
 				unordered_set<OutputObject> ooset = it->second;
 				for (auto jt = ooset.begin(); jt != ooset.end(); ++jt) {
 					generatedIndex[newIndex].insert(*jt);
