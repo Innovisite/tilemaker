@@ -61,6 +61,7 @@ local amenity_exclude = Set { "", "car_sharing" }
 local place_exclude = Set { "" }
 local shop_exclude = Set { "" }
 local landuse_exclude = Set { "" }
+local leisure_exclude = Set { "" }
 local natural_exclude = Set { "" }
 local road_exclude = Set { "" }
 local railway_exclude = Set { "" }
@@ -102,14 +103,17 @@ function node_function(node)
 	local shop = node:Find("shop")
 	local amenity = node:Find("amenity")
 
-    -----------------
-	-- place layer --
-	-----------------
+	-------------------------------------------------------------------------
+	-- Place 															   --
+	-- Layer: place_label 				   								   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:places        --
+	-------------------------------------------------------------------------
 	if not place_exclude[place] then
 		Statistics(node, "place")
 
 		node:Layer("place_label", false)
-		node:Attribute("name",name)
+		node:Attribute("name_en",name)
+
 		-- the main field for styling labels for different kinds of places is type.
 		-- possible values: 'city','town','village','hamlet','suburb','neighbourhood'
 		node:Attribute("type",place)
@@ -142,28 +146,43 @@ function node_function(node)
 		-- The ldir field can be used as a hint for label offset directions at lower zoom levels.
 		node:Attribute("ldir","N")
 	end
-	-- POI Attributes
-	-- "localrank","maki","name","name_de","name_en","name_es","name_fr","name_ru",
-	-- "name_zh","osm_id","ref","scalerank","type","network"
 
+	-------------------------------------------------------------------------
+	-- Amenity / Shop 		  											   --
+	-- Layer: poi_label 				   								   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:amenity       --
+	-- POI Attributes													   --
+	-- "localrank","maki","name","name_de","name_en","name_es","name_fr"   --
+	-- "name_zh","osm_id","ref","scalerank","type","network"		  	   --
+	-------------------------------------------------------------------------
 	if not amenity_exclude[amenity] then
 		Statistics(node, "amenity")
 		node:Layer("poi_label", false)
 		
 		-- OSM uses "_" while the style uses "-" for icons 
 		local amenity_rep = string.gsub(amenity, "_", "-")
-		node:AttributeNumeric("scalerank",3)
+		node:AttributeNumeric("scalerank",4)
+		node:AttributeNumeric("localrank",15)
 
 		-- set icon & name, where icon & name is available
 		-- set icon only if no name is available, this reduces file size
 		if icons[amenity_rep] and name~= "" then
 			node:Attribute("maki", amenity_rep)
-			node:Attribute("name", name)
+			node:Attribute("name_en", name)
+		
 		elseif icons[amenity_rep] then
 			node:Attribute("maki", amenity_rep)
+		
+		elseif amenity=="kindergarten" 
+			or amenity == "school" then
+			node:Attribute("maki", "school")
+			node:Attribute("name_en", name)
+			node:AttributeNumeric("scalerank",3)
+			node:AttributeNumeric("localrank",3)
+
 		elseif name~= "" then
 			node:Attribute("maki", "marker")
-			node:Attribute("name", name)
+			node:Attribute("name_en", name)
 		else
 			-- if you want to display default markers
 			-- for pois without icon & name
@@ -179,9 +198,11 @@ function node_function(node)
 		node:Layer("poi_label", false)
 
 		local shop_rep = string.gsub(shop, "_", "-")
-		node:AttributeNumeric("scalerank",3)
 
-		node:Attribute("name", name)
+		node:AttributeNumeric("scalerank",4)
+		node:AttributeNumeric("localrank",15)
+		node:Attribute("name_en", name)
+
 		if icons[shop_rep] then
 			node:Attribute("maki", shop_rep)
 		else
@@ -207,6 +228,7 @@ function way_function(way)
 	local landuse_overlay = way:Find("landuse_overlay")
 	local road = way:Find("highway")
 	local admin = way:Find("admin_level")
+	local amenity = way:Find("amenity")
 
 	-- helpers
 	local bridge = way:Find("bridge");
@@ -215,21 +237,66 @@ function way_function(way)
 	local name = way:Find("name");
 	local name_en = way:Find("name:en");
 
---"agriculture","farmland","wood","forest","park","golf_course","farm","grass","meadow","scrub",
---"heath","allotments","camp_site","plant_nursery","cemetery","sports_centre","grassland",
---"farmyard","parking","school","rock","scree","village_green","orchard","pitch","soccer",
---"athletics","christian","playground","recreation_ground"
+	-------------------------------------------------------------------------
+	-- Amenity 							   								   --
+	-- Layer: poi_label / landuse				   						   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:amenity       --
+	-------------------------------------------------------------------------
+	if not amenity_exclude[amenity] then
+
+		-- School case
+		if amenity == "school" and name ~= "" then
+			way:LayerAsCentroid("poi_label")
+			way:AttributeNumeric("scalerank",3)
+			way:AttributeNumeric("localrank",3)
+			way:Attribute("name_en", name)
+			way:Attribute("maki", "school")
+
+			way:Layer("landuse", true)
+			way:Attribute("class",amenity)
+			way:Attribute("type",amenity)
+		end
+	end
+
+	-------------------------------------------------------------------------
+	-- Landuse 							   								   --
+	-- Layer: landuse    				   								   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:landuse       --
+	-------------------------------------------------------------------------
 	if not landuse_exclude[landuse] then
 		Statistics(node, "landuse")
 
-		way:Layer("landuse", true)
-		way:Attribute("class",landuse)
-		if landuse=="allotments" then way:Attribute("class","park") end
-		if leisure~="" then
-			io.write(debug_print and "-Leisure" or "")
-			way:Attribute("class","park")
+		-- For mapbox landuse = industrial is linked to airway so do not export
+		-- OSM industrial value in landuse layer
+		if landuse~="industrial" then
+			way:Layer("landuse", true)
+			way:Attribute("class",landuse)
+			if landuse=="allotments" then 
+				way:Attribute("class","park") 
+				way:Attribute("type","park") 
+			end
 		end
 	end
+
+	-------------------------------------------------------------------------
+	-- Leisure 							   								   --
+	-- Layer: landuse    				   								   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:leisure       --
+	-----------------------------------------------------------------------
+	if not landuse_exclude[leisure] then
+		Statistics(node, "leisure");
+
+		io.write(debug_print and "-Leisure" or "")
+		way:Layer("landuse", true)
+		way:Attribute("class","park")
+		way:Attribute("type","park")
+	end
+
+	-------------------------------------------------------------------------
+	-- Waterway  							   				     		   --
+	-- Layesr: waterway_label / waterway / water   				     	   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:waterway      --
+	-------------------------------------------------------------------------
 	if waterway~="" then
 		Statistics(node, "water label")
 
@@ -254,20 +321,14 @@ function way_function(way)
 		way:Attribute("class","river")
 		way:Attribute("type","river")
 	end
-	if not natural_exclude[natural] then
-		-- The class and type fields match those in the #waterway layer.
-		-- 'river','canal','stream','stream_intermittent','drain','ditch'
-		Statistics(node, "water")
 
-		way:Layer("water", true)
-		way:Attribute("class",waterway)
-		way:Attribute("type",waterway)
-		way:Attribute("name",name)
-	end
-
-    ----------------
-	-- road layer --
-	----------------
+    -------------------------------------------------------------------------
+	-- Highway 							   				     		   	   --
+	-- Layer: road_bridge/road_label/road/bridge			     		   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:highway       --
+	-------------------------------------------------------------------------
+	
+	-- bridges and roads
 	if not road_exclude[road] then
 		if bridge~="" then
     		way:Layer("road_bridge", false)
@@ -278,7 +339,10 @@ function way_function(way)
 		way:Attribute("class",road)
 		way:Attribute("type",road)
 		way:Attribute("layer",road)
-		if road=="residential" then way:Attribute("class","street") end
+		if road=="residential" 
+			or road =="unclassified" then 
+			way:Attribute("class","street") 
+		end
 		if road=="footway" or road=="cycleway" then
 			way:Attribute("class","path")
 		end
@@ -289,26 +353,50 @@ function way_function(way)
 		if road=="primary_link" or road=="secondary_link" then
 			way:Attribute("class","street")
 		end
+		if road == "pedestrian" then
+			way:Attribute("class","street_limited")
+		end
+
 		if bridge~="" then
 			way:Layer("road_bridge", false)
 			way:Layer("bridge", false)
 		end
 	end
+
+	-- road shields
 	if not road_exclude[road] then
-		-- "class","len","localrank","osm_id","ref","reflen","shield","name","name_de","name_en","name_es","name_fr","name_ru","name_zh"
-		way:Layer("road_label", false)
-		way:Attribute("name",name)
+
+		-- motorway shields have a farther visibility compared to primary, secondary,..
+		if road == "motorway" then
+		way:Layer("road_label_shields_motorway", false)
+		else
+		way:Layer("road_label_shields", false)
+		end
+
+		way:Attribute("name_en",name)
 		if way:Find("ref") ~="" then
 			way:Attribute("ref",way:Find("ref"))
 			way:AttributeNumeric("reflen", string.len(way:Find("ref")))
 		end
 		way:AttributeNumeric("osm_id",tonumber(way:Id()))
 		way:Attribute("shield","default")
+	
+	end
+
+	-- road labels
+	if not road_exclude[road] then
+
+		way:Layer("road_label", false)
+
+		-- "class","len","localrank","osm_id","ref","reflen","shield","name","name_de","name_en","name_es","name_fr","name_ru","name_zh"
 		way:AttributeNumeric("len", 100)
 		way:AttributeNumeric("localrank", 3)
+	
 		--"class","len","localrank","name","name_de","name_en","name_es","name_fr","name_ru","name_zh","osm_id","ref","reflen","shield"
 		--way:AttributeBoolean("oneway": "false")
-		if road=="residential" then way:Attribute("class","street") end
+		if road=="residential" then 
+			way:Attribute("class","street") 
+		end
 		if road=="footway" or road=="cycleway" then
 			way:Attribute("class","path")
 		end
@@ -319,6 +407,12 @@ function way_function(way)
 			way:Attribute("class","street")
 		end
     end
+
+    -------------------------------------------------------------------------
+	-- Railway 							   				     		   	   --
+	-- Layers: road, aeroway, barrier_line					     		   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:highway       --
+	-------------------------------------------------------------------------
 	--if road~="" then
 	--	way:Attribute("class",road)
 	--	way:Layer("road_label", false)
@@ -328,9 +422,7 @@ function way_function(way)
 	--end
 	if not railway_exclude[railway] then
 		way:Layer("road", false)
-		if railway == 'rail' then
-			way:Attribute("class", 'major_rail')
-		end
+		way:Attribute("class", 'major_rail')
 	end
 
 	if not landuse_overlay_exclude[landuse_overlay] then
@@ -347,7 +439,26 @@ function way_function(way)
 		way:Attribute("class",barrier_line)
 
 	end
+
+ 	-------------------------------------------------------------------------
+	-- Building 							   				     		   --
+	-- Layers: building/poi_label	   						     		   --
+	-- OSM reference: http://wiki.openstreetmap.org/wiki/Key:building      --
+	-------------------------------------------------------------------------
 	if not building_exclude[building] then
+		
+		-- Contour
 		way:Layer("building", true)
+
+		-- POI only when a name is present
+		if name~="" then
+			way:LayerAsCentroid("poi_label")
+			way:AttributeNumeric("scalerank",4)
+			way:AttributeNumeric("localrank",14)
+			way:Attribute("name_en", name)
+			way:Attribute("maki", "marker")
+			
+		end
 	end
+
 end
